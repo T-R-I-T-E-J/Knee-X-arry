@@ -1,0 +1,3 @@
+"""
+configs module initialization
+"""
