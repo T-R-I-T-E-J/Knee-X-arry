@@ -1,27 +1,24 @@
-# ==================== Knee OA AI - Dependencies ====================
-
-# Deep Learning
-torch>=2.0.0
-torchvision>=0.15.0
+# Knee OA Detection System - Dependencies
+# Core ML
+torch
+torchvision
+numpy
+scipy
+scikit-learn
 
 # Image Processing
-opencv-python>=4.8.0
-Pillow>=10.0.0
+opencv-python
+Pillow
 
-# Data Processing & ML
-numpy>=1.24.0
-pandas>=2.1.0
-scikit-learn>=1.3.0
-scipy>=1.11.0
+# GUI (Professional Medical Interface)
+PyQt6
+qimage2ndarray
 
-# Visualization
-matplotlib>=3.8.0
-seaborn>=0.13.0
+# Reporting & Visualization
+reportlab
+matplotlib
+seaborn
 
-# Web UI
-gradio>=4.0.0
-
-# Logging & Utilities
-tensorboard>=2.14.0
-tqdm>=4.66.0
-pyyaml>=6.0.0
+# Utilities
+pandas
+gradio
