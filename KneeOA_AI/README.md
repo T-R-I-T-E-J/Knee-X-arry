@@ -1,401 +1,201 @@
 # Knee Osteoarthritis (OA) AI Detection System
 
-A comprehensive deep learning system for automated analysis of knee X-ray images to detect osteoarthritis severity and assess bone health.
+A deep learning system for automated analysis of knee X-ray images. Classifies osteoarthritis severity using the Kellgren-Lawrence grading system and extracts 4 clinical parameters — all learned automatically by the CNN.
 
-## 🎯 Features
+## Features
 
-- **Osteoarthritis Classification**: Classify knee OA severity using the Kellgren-Lawrence (KL) grading system (0-4)
-- **Bone Health Assessment**: Predict bone density T-scores for osteoporosis risk detection
-- **Automatic Feature Learning**: Deep neural network automatically learns radiographic features (JSW, osteophytes, sclerosis)
-- **Explainability**: Grad-CAM visualization shows which X-ray regions influence predictions
-- **Multi-Expert Handling**: Support for consensus learning from multiple radiologist annotations
-- **Production-Ready Deployment**: Web UI via Gradio for easy clinical use
+- **OA Classification**: KL grading (0–4) with confidence scores
+- **Clinical Parameter Extraction**: JSW, Osteophytes, Sclerosis, Bone Contour — learned by the CNN via ordinal consistency (no manual labels)
+- **Dual Dataset Support**: Merges MedicalExpert-I and MedicalExpert-II for training
+- **Explainability**: Grad-CAM attention maps highlighting diagnostic regions
+- **Web UI**: Gradio interface for uploading X-rays and viewing results
 
-## 📊 Dataset Structure
+## Dataset Structure
 
 ```
-MedicalExpert-I/
-├── 0Normal/          (KL Grade 0)
-├── 1Doubtful/        (KL Grade 1)
-├── 2Mild/            (KL Grade 2)
-├── 3Moderate/        (KL Grade 3)
-└── 4Severe/          (KL Grade 4)
-
-MedicalExpert-II/
-├── 0Normal/
-├── 1Doubtful/
-├── 2Mild/
-├── 3Moderate/
-└── 4Severe/
+Knee-X-arry/
+├── MedicalExpert-I/
+│   ├── 0Normal/          (KL Grade 0 — 514 images)
+│   ├── 1Doubtful/        (KL Grade 1 — 477 images)
+│   ├── 2Mild/            (KL Grade 2 — 232 images)
+│   ├── 3Moderate/        (KL Grade 3 — 221 images)
+│   └── 4Severe/          (KL Grade 4 — 206 images)
+│
+├── MedicalExpert-II/
+│   ├── 0Normal/          (503 images)
+│   ├── 1Doubtful/        (488 images)
+│   ├── 2Mild/            (232 images)
+│   ├── 3Moderate/        (221 images)
+│   └── 4Severe/          (206 images)
+│
+└── KneeOA_AI/            ← This project
 ```
 
-## 🛠️ Tech Stack
+**Total: 3,300 images** merged → 70% train / 15% val / 15% test
 
-| Component | Technology |
-|-----------|-----------|
-| **Framework** | PyTorch 2.0+ |
-| **Backbone** | EfficientNet-B0 / ResNet50 |
-| **Image Processing** | OpenCV, PIL, Albumentations |
-| **Visualization** | Matplotlib, Grad-CAM |
-| **Web UI** | Gradio, Flask |
-| **ML Metrics** | scikit-learn |
-| **Logging** | TensorBoard |
-| **Python** | 3.9+ |
-
-## 💻 Hardware Requirements
-
-### Minimum (CPU Training)
-- CPU: 8+ cores
-- RAM: 16 GB
-- Storage: 50 GB
-
-### Recommended (GPU Training)
-- GPU: NVIDIA RTX 3060 Ti 8GB+ (or equivalent)
-- RAM: 32 GB
-- Storage: 100+ GB (SSD)
-
-### Optimal (Production)
-- GPU: NVIDIA RTX 4090 24GB+
-- RAM: 64 GB
-- Storage: 500+ GB (NVMe SSD)
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 KneeOA_AI/
 ├── configs/
-│   └── config.py              # Configuration (data, model, training)
+│   ├── __init__.py
+│   └── config.py              # All configuration (data, model, training, hardware)
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py         # Data loading & preprocessing
-│   ├── model.py               # Model architecture (EfficientNet, ResNet)
-│   ├── trainer.py             # Training loop & callbacks
-│   ├── evaluation.py          # Metrics & Grad-CAM
-│   └── inference.py           # Prediction engine
+│   ├── data_loader.py         # Preprocessing, augmentation, dataset loading
+│   ├── model.py               # Architecture + ClinicalParameterHead + OrdinalConsistencyLoss
+│   ├── trainer.py             # Training loop, checkpointing, early stopping
+│   ├── evaluation.py          # Metrics, Grad-CAM, clinical parameter analysis
+│   └── inference.py           # Single/batch prediction with severity descriptions
 ├── ui/
 │   └── app.py                 # Gradio web interface
-├── data/
-│   ├── raw/                   # Original X-ray images
-│   └── processed/             # Preprocessed images
-├── models/
-│   └── best_model.pt          # Trained model weights
-├── outputs/
-│   ├── training_history.json  # Training metrics
-│   ├── evaluation_metrics.json # Test metrics
-│   └── visualizations/        # Grad-CAM outputs
-├── notebooks/                 # Jupyter notebooks for exploration
-├── train.py                   # Main training script
-├── inference.py               # Standalone inference script
+├── models/                    # Saved model weights (created during training)
+├── outputs/                   # Logs, metrics, visualizations (created during training)
+├── train.py                   # Main training script (CLI entry point)
 ├── requirements.txt           # Python dependencies
-└── README.md                  # This file
+└── README.md
 ```
 
-## 🚀 Quick Start
+## Model Architecture
 
-### 1. Installation
+```
+Input X-Ray (224×224×3)
+        │
+  EfficientNet-B0 Backbone (pretrained ImageNet)
+        │
+  Feature Vector (1280-d)
+        │
+   ┌────┴────┐
+   │         │
+ClassHead  ClinicalHead
+ (5 cls)   (4 params → sigmoid)
+   │         │
+ KL Grade   ├── JSW           [1.0=wide → 0.0=gone]       ↓ with severity
+ 0–4        ├── Osteophytes   [0.0=none → 1.0=severe]     ↑ with severity
+            ├── Sclerosis     [0.0=normal → 1.0=hardened]  ↑ with severity
+            └── Contour       [0.0=smooth → 1.0=deformed]  ↑ with severity
+
+Loss = CrossEntropy(grade) + 0.3 × OrdinalConsistency(params, grades)
+```
+
+**How clinical parameters are learned** — The CNN has no ground-truth measurements. Instead, ordinal consistency loss enforces that JSW decreases and the other scores increase as the KL grade goes up. The model discovers the visual patterns from the X-rays automatically.
+
+## Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-# Clone repository (if applicable)
 cd KneeOA_AI
-
-# Create virtual environment
-python -m venv venv
-
-# Activate (Windows)
-venv\Scripts\activate
-# Activate (Linux/Mac)
-source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Prepare Dataset
+> **GPU users**: Install PyTorch with CUDA for faster training:
+> ```bash
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+> ```
 
-Organize your X-ray images into the directory structure above:
-
-```bash
-mkdir -p data/raw/MedicalExpert-I/{0Normal,1Doubtful,2Mild,3Moderate,4Severe}
-mkdir -p data/raw/MedicalExpert-II/{0Normal,1Doubtful,2Mild,3Moderate,4Severe}
-
-# Copy X-ray images to respective class folders
-cp /path/to/normal_xrays/* data/raw/MedicalExpert-I/0Normal/
-cp /path/to/doubtful_xrays/* data/raw/MedicalExpert-I/1Doubtful/
-# ... continue for other classes
-```
-
-### 3. Configure Training
-
-Edit `configs/config.py`:
-
-```python
-# Update dataset paths
-data_config.dataset_paths = {
-    "MedicalExpert-I": "path/to/MedicalExpert-I",
-    "MedicalExpert-II": "path/to/MedicalExpert-II"
-}
-
-# Set model parameters
-model_config.backbone = "efficientnet_b0"  # or "resnet50"
-model_config.include_t_score_head = True   # Enable bone health prediction
-
-# Configure training
-training_config.num_epochs = 100
-training_config.learning_rate = 1e-3
-training_config.batch_size = 32
-```
-
-### 4. Train Model
+### 2. Train the Model
 
 ```bash
-python train.py \
-    --dataset-path data/raw \
-    --epochs 100 \
-    --batch-size 32 \
-    --learning-rate 1e-3 \
-    --backbone efficientnet_b0 \
-    --device cuda
+# CPU training
+python train.py --epochs 50 --device cpu
+
+# GPU training (recommended)
+python train.py --epochs 50 --device cuda
+
+# Custom settings
+python train.py --epochs 100 --batch-size 16 --backbone resnet50 --learning-rate 0.0005
 ```
 
-**Output Files:**
-- `models/best_model.pt` - Trained model weights
-- `outputs/training_history.json` - Training metrics
-- `outputs/evaluation_metrics.json` - Test set performance
-- `outputs/visualizations/` - Grad-CAM visualizations
+**CLI Arguments:**
 
-### 5. Deploy Web UI
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--epochs` | 100 | Number of training epochs |
+| `--batch-size` | 32 | Batch size |
+| `--learning-rate` | 0.001 | Learning rate |
+| `--backbone` | efficientnet_b0 | Architecture (efficientnet_b0, resnet50, resnet101) |
+| `--device` | cuda | Device (cuda, cpu) |
+| `--disable-grad-cam` | — | Skip Grad-CAM generation |
+
+**Training outputs:**
+- `models/best_model.pt` — Saved model weights
+- `outputs/training_history.json` — Loss/accuracy per epoch
+- `outputs/evaluation_metrics.json` — Test performance + clinical parameter correlations
+- `outputs/visualizations/` — Confusion matrix, Grad-CAM samples
+
+### 3. Run the Web UI
 
 ```bash
-# Start Gradio web interface
 python ui/app.py
-
-# Access at http://localhost:7860
+# Open http://localhost:7860
 ```
 
-Then:
-1. Load your trained model: `models/best_model.pt`
-2. Upload knee X-ray images
-3. View predictions with attention maps
+1. Enter model path → Load Model
+2. Upload knee X-ray → Analyze
+3. View: KL grade, confidence, 4 clinical parameter bars, Grad-CAM attention map
 
-## 🔧 Advanced Usage
-
-### Training with Custom Configuration
-
-```python
-# train_custom.py
-from configs.config import model_config, training_config
-from src.data_loader import KneeXRayDataLoader
-from src.model import create_model
-from src.trainer import setup_training
-
-# Customize config
-model_config.backbone = "resnet50"
-training_config.num_epochs = 200
-training_config.early_stopping_patience = 20
-
-# Your training code here
-```
-
-### Inference on New Images
+## Inference (Python API)
 
 ```python
 from src.inference import InferenceEngine
 from src.model import KneeOADetectionModel
 import torch
 
-# Load model
-model = KneeOADetectionModel()
-state_dict = torch.load("models/best_model.pt")
+model = KneeOADetectionModel(
+    backbone="efficientnet_b0",
+    num_classes=5,
+    include_clinical_params=True,
+    num_clinical_params=4
+)
+state_dict = torch.load("models/best_model.pt", map_location="cpu")
 model.load_state_dict(state_dict)
 
-# Create inference engine
-engine = InferenceEngine(model, device="cuda")
-
-# Make predictions
+engine = InferenceEngine(model, device="cpu")
 result = engine.predict_single("path/to/xray.jpg")
-print(f"OA Grade: {result['predicted_label']}")
-print(f"Confidence: {result['confidence']:.2%}")
-print(f"T-Score: {result.get('t_score', 'N/A')}")
 
-# Batch prediction
-results = engine.predict_batch([
-    "xray1.jpg",
-    "xray2.jpg",
-    "xray3.jpg"
-])
+print(f"KL Grade: {result['predicted_label']}")
+print(f"Confidence: {result['confidence']:.1%}")
+for name, value in result['clinical_params'].items():
+    desc = result['clinical_descriptions'][name]
+    print(f"  {name}: {value:.3f} — {desc}")
 ```
 
-### Multi-Task Learning (Classification + Regression)
+## KL Grading System
 
-```python
-# Automatically handles multi-task loss
-model = KneeOADetectionModel(
-    num_classes=5,
-    include_regression=True  # Enable T-score prediction
-)
-
-# Training automatically handles both tasks
-# Adjust weights in training_config:
-model_config.classification_weight = 1.0
-model_config.regression_weight = 0.5
-```
-
-### Explainability with Grad-CAM
-
-```python
-from src.evaluation import GradCAM, ExplainabilityVisualizer
-import torch
-
-# Create Grad-CAM
-gradcam = GradCAM(model, target_layer_name="features")
-
-# Compute attention map
-image = torch.randn(1, 3, 224, 224)
-attention_map = gradcam.compute_gradcam(image, target_class=2)
-
-# Visualize
-visualizer = ExplainabilityVisualizer(class_names)
-overlay = visualizer.visualize_gradcam(
-    image=original_image,
-    gradcam=attention_map,
-    true_label=2,
-    pred_label=2,
-    confidence=0.95
-)
-```
-
-## 📈 Training Results Interpretation
-
-### Confusion Matrix
-Shows classification accuracy per OA grade. Diagonal values indicate correct predictions.
-
-### Training History
-- **train_loss**: Should decrease steadily
-- **val_loss**: Monitor for overfitting (increasing while train decreases)
-- **accuracy**: Should increase over epochs
-- **F1-Score**: Weighted average accounting for class imbalance
-
-### Grad-CAM Visualization
-Highlights X-ray regions important for prediction:
-- Red areas: High attention (important for classification)
-- Blue areas: Low attention (less important)
-
-## 🎓 Kellgren-Lawrence Grading System
-
-| Grade | Name | Characteristics |
-|-------|------|-----------------|
-| 0 | None | No OA signs |
-| 1 | Doubtful | Doubtful narrowing, possible osteophytes |
+| Grade | Name | Key Features |
+|-------|------|-------------|
+| 0 | Normal | No OA signs |
+| 1 | Doubtful | Possible osteophyte, normal joint space |
 | 2 | Mild | Definite osteophytes, minimal JSW narrowing |
-| 3 | Moderate | Moderate osteophytes, substantial JSW narrowing |
-| 4 | Severe | Large osteophytes, severe JSW narrowing, sclerosis |
+| 3 | Moderate | Moderate osteophytes + JSW narrowing, possible sclerosis |
+| 4 | Severe | Large osteophytes, severe JSW narrowing, sclerosis, deformity |
 
-## 📊 Radiographic Features Learned
+## Tech Stack
 
-The deep learning model automatically identifies:
+| Component | Technology |
+|-----------|-----------|
+| Framework | PyTorch |
+| Backbone | EfficientNet-B0 / ResNet |
+| Image Processing | OpenCV (CLAHE), PIL |
+| Explainability | Grad-CAM |
+| Web UI | Gradio |
+| Metrics | scikit-learn, scipy |
 
-1. **Joint Space Width (JSW)**: Gap between femoral and tibial cartilage
-2. **Osteophytes**: Bone spurs at joint margins
-3. **Subchondral Sclerosis**: Increased bone density below cartilage
-4. **Bone Contour Changes**: Deformities and irregularities
-5. **Soft Tissue Changes**: Effusions and synovial thickening
+## Troubleshooting
 
-## 🔍 Model Architecture
+| Problem | Solution |
+|---------|----------|
+| Out of memory | Reduce `--batch-size` to 8 or 16 |
+| CUDA not available | Use `--device cpu` or install CUDA PyTorch |
+| Slow training on CPU | ~5-10 min/epoch for 3300 images; use GPU for 10-20× speedup |
+| Windows pickle error | Already fixed — `num_workers=0` in config |
 
-```
-Input (224×224 RGB)
-        ↓
-[Backbone - EfficientNet-B0]
-    ↓          ↓
-[Features: 1280-dim]
-    ↓          ↓
-[Classification Head]  [Regression Head]
-    ↓                      ↓
-[5 Classes]  →  [T-Score]
-(KL 0-4)       (-4 to +3)
-```
+## Disclaimer
 
-## ⚙️ Configuration Parameters
-
-### Data Configuration
-- **image_size**: (224, 224) - Input resolution
-- **batch_size**: 32 - Samples per batch
-- **augmentation_enabled**: True - Apply data augmentation
-
-### Model Configuration
-- **backbone**: "efficientnet_b0" - Feature extractor
-- **pretrained**: True - Use ImageNet weights
-- **num_classes**: 5 - KL grades (0-4)
-- **include_t_score_head**: True - Multi-task learning
-
-### Training Configuration
-- **num_epochs**: 100 - Training duration
-- **learning_rate**: 1e-3 - Optimizer step size
-- **optimizer**: "adam" - Optimization algorithm
-- **early_stopping_patience**: 15 - Epochs before stopping
-
-## 🐛 Troubleshooting
-
-### Out of Memory (OOM)
-- Reduce batch_size: `data_config.batch_size = 16`
-- Enable gradient checkpointing: `hardware_config.use_gradient_checkpointing = True`
-- Use smaller backbone: `model_config.backbone = "efficientnet_b0"`
-
-### Poor Model Performance
-- Check data quality and labeling
-- Augment dataset with rotations/brightness changes
-- Increase training epochs
-- Reduce learning rate
-- Use class weights for imbalanced data
-
-### Grad-CAM Not Generating
-- Ensure model is in eval mode
-- Check layer name exists in model
-- Verify input has gradients enabled
-
-## 📚 References
-
-- Kellgren, J.H. and Lawrence, J.S. (1957). "Radiological assessment of OA"
-- Tan, M., & Le, Q. (2019). "EfficientNet: Rethinking Model Scaling"
-- He, K., et al. (2016). "Deep Residual Learning" (ResNet)
-- Selvaraju, R.R., et al. (2017). "Grad-CAM: Visual Explanations from CNNs"
-
-## 📄 License
-
-Research and Educational Use Only
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Test thoroughly on your hardware
-2. Update documentation
-3. Follow code style guidelines
-4. Submit pull requests with clear descriptions
-
-## ⚠️ Medical Disclaimer
-
-**This system is for research and educational purposes only.**
-
-- Not intended for clinical diagnosis
-- Should not replace professional medical evaluation
-- Always consult qualified radiologists and physicians
-- Results may contain errors; expert review required
-
-## 📞 Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review code comments
-3. Examine training logs in `outputs/training.log`
-
-## 🔗 Additional Resources
-
-- [PyTorch Documentation](https://pytorch.org/docs/)
-- [Gradio Guide](https://gradio.app/guides/)
-- [EfficientNet Paper](https://arxiv.org/abs/1905.11946)
-- [Keras/TF Implementation](https://github.com/qubvel/classification_models)
+**This system is for research and educational purposes only.** Not intended for clinical diagnosis. Always consult qualified medical professionals.
 
 ---
 
-**Last Updated:** April 2026  
-**Version:** 1.0.0
+**Version:** 2.0.0 — Clinical Parameter Extraction  
+**Last Updated:** April 2026
