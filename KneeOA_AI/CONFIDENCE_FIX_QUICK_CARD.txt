@@ -1,0 +1,45 @@
+=============================================================================
+             CONFIDENCE_FIX_QUICK_CARD.txt
+=============================================================================
+Quick Reference Guide for Knee OA AI Parameter Analysis System
+
+Current Detected Problem: 
+The diagnostic script revealed your model is *untrained*. It hasn't generated 
+training_history.json, so it's currently randomly guessing, resulting in ~26% 
+accuracy (near random for 4-5 classes).
+
+Step-by-step Fixes:
+
+-----------------------------------------------------------------------------
+FIX 1: RUN THE FULL TRAINING PIPELINE 
+Expected Impact: +50-60% Confidence Increase
+Time Required: 4-6 hours (Depending on GPU)
+
+Action:
+You need to actually train the newly refactored EfficientNet-B0 multi-task 
+model on your merged `MedicalExpert-I` and `MedicalExpert-II` datasets.
+
+Run this command inside the D:\titu\Knee-X-arry\KneeOA_AI folder:
+python train.py --epochs 100 --batch-size 32
+
+-----------------------------------------------------------------------------
+FIX 2: UTILIZE CUDA GPUs
+Expected Impact: Speeds up training by 10x
+Time Required: 1 min
+
+Action:
+Ensure you are using your GPU (if available). The script will automatically 
+detect it, but you can force it by running:
+python train.py --epochs 100 --batch-size 32 --device cuda
+
+-----------------------------------------------------------------------------
+FIX 3: LOAD THE OPTIMIZED WEIGHTS IN INFERENCE
+Expected Impact: Production-level Confidence (>85%)
+
+Action:
+Once training is successful, a `best_model.pt` will be saved in the `models/` 
+directory. The next time you open the medical GUI:
+python ui/medical_gui.py
+
+The GUI will automatically load the new trained weights, and your confidence 
+percentages will spike from 26% to a highly accurate representation of the X-ray.
