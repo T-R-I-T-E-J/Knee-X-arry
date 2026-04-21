@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict
+from PIL import Image
 from sklearn.model_selection import train_test_split
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
@@ -16,32 +17,44 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from src.preprocessing import AutoCutter
+
 class ImagePreprocessor:
     """Handles medical image loading, enhancement, and resizing."""
     
     def __init__(self, target_size: Tuple[int, int] = (224, 224),
                  normalize_mean: List[float] = None,
                  normalize_std: List[float] = None,
-                 apply_clahe: bool = True):
+                 apply_clahe: bool = True,
+                 use_autocutter: bool = True):
         self.target_size = target_size
         self.normalize_mean = normalize_mean or [0.485, 0.456, 0.406]
         self.normalize_std = normalize_std or [0.229, 0.224, 0.225]
         self.apply_clahe = apply_clahe
+        self.autocutter = AutoCutter() if use_autocutter else None
         self._clahe_clip = 2.0
         self._clahe_grid = (8, 8)
     
     def preprocess(self, image_path: str) -> np.ndarray:
-        """Complete pipeline: Load -> CLAHE -> Resize -> Normalize -> ToRGB."""
+        """Complete pipeline: Load -> AutoCrop -> CLAHE -> Resize -> Normalize."""
         image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise FileNotFoundError(f"Could not load: {image_path}")
+
+        # 1. NEW: Auto-Cutter (Focus on anatomical center)
+        if self.autocutter:
+            # Convert to RGB for AutoCutter (it expects RGB)
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            image_pil = Image.fromarray(image_rgb)
+            cropped_pil = self.autocutter.crop(image_pil)
+            image = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2GRAY)
             
-        # CLAHE (Lazy init to avoid pickling issues)
+        # 2. CLAHE (Contrast Enhancement)
         if self.apply_clahe:
             clahe = cv2.createCLAHE(clipLimit=self._clahe_clip, tileGridSize=self._clahe_grid)
             image = clahe.apply(image)
             
-        # Resize with padding
+        # 3. Resize with padding
         h, w = image.shape[:2]
         aspect = w / h
         new_w, new_h = (self.target_size[1], int(self.target_size[1]/aspect)) if aspect > 1 else (int(self.target_size[0]*aspect), self.target_size[0])
@@ -53,7 +66,7 @@ class ImagePreprocessor:
         right = self.target_size[1] - new_w - left
         image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_CONSTANT, value=0)
         
-        # Normalize
+        # 4. Normalize
         image = image.astype(np.float32) / 255.0
         image = np.stack([image] * 3, axis=-1) # To RGB
         return image

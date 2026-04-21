@@ -58,8 +58,48 @@ def main(args):
     # 5. Evaluate
     results = evaluate_model(model, test_dl, args.device, data_config.class_names, OUTPUTS_DIR)
     
-    logger.info("\nFinal Accuracy: {:.2%}".format(results['metrics']['accuracy']))
-    logger.info("Evaluation Complete. Best model saved in models/ directory.")
+    logger.info("\n" + "="*60)
+    logger.info("FINAL EVALUATION RESULTS")
+    logger.info("="*60)
+    logger.info("Classification Accuracy: {:.2%}".format(results['metrics']['accuracy']))
+    logger.info("Weighted F1 Score:       {:.4f}".format(results['metrics']['f1_weighted']))
+    
+    if 'clinical_stats' in results:
+        def get_mark(val, inverse=False):
+            # JSW is inverse (High is good, Low is bad)
+            if inverse:
+                if val > 0.7: return "Healthy"
+                if val > 0.5: return "Mild"
+                if val > 0.3: return "Moderate"
+                return "Critical"
+            else:
+                if val < 0.3: return "Minimal"
+                if val < 0.5: return "Noticeable"
+                if val < 0.7: return "Significant"
+                return "High/Severe"
+
+        logger.info("\nClinical Marker Spearman Correlations (vs KL Grade):")
+        for key, val in results['metrics'].items():
+            if key.startswith('spearman_'):
+                param_name = key.replace('spearman_', '').capitalize()
+                logger.info(f"    - {param_name:12}: {val:.4f}")
+        
+        logger.info("\nMean Marker Scores per KL Grade (with Medical Marks):")
+        param_names = ["JSW", "Osteophytes", "Sclerosis", "Contour"]
+        header = "    Grade | " + " | ".join([f"{p:15}" for p in param_names])
+        logger.info(header)
+        logger.info("    " + "-" * len(header))
+        for g in range(5):
+            row = f"    {g:5} | "
+            val_strs = []
+            for p in param_names:
+                v = results['clinical_stats'][p][g]
+                mark = get_mark(v, inverse=(p == "JSW"))
+                val_strs.append(f"{v:.2f} ({mark:^8})")
+            row += " | ".join(val_strs)
+            logger.info(row)
+
+    logger.info("\nEvaluation Complete. Best model saved in models/ directory.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -58,7 +58,7 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     """Model architecture configuration"""
-    backbone: str = "efficientnet_b0"  # Options: efficientnet_b0, resnet50, resnet101
+    backbone: str = "efficientnet_b3"
     pretrained: bool = True
     freeze_backbone: bool = False
     

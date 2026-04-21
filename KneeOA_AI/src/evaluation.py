@@ -119,8 +119,27 @@ class GradCAM:
         
         # Pool grads
         weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
-        cam = torch.sum(weights * self.activations, dim=1).squeeze().cpu().detach().numpy()
+        cam = torch.sum(weights * self.activations, dim=1).squeeze()
+        
+        # Convert to numpy and handle dimensions
+        cam = cam.detach().cpu().numpy()
+        if cam.ndim > 2: cam = cam[0]
+        
+        # Ensure it's a valid 2D numpy array for OpenCV
+        cam = np.array(cam, dtype=np.float32)
+        if cam.ndim == 0:
+            # Fallback if activations were 1x1 (scalar)
+            cam = np.ones((7, 7), dtype=np.float32) * cam
+        elif cam.ndim == 1:
+            cam = np.expand_dims(cam, axis=0) # Make it 2D
+        
         cam = np.maximum(cam, 0)
-        cam = cv2.resize(cam, (224, 224))
+        # Ensure we have spatial dimensions before resizing
+        h, w = cam.shape
+        if h > 1 and w > 1:
+            cam = cv2.resize(cam, (224, 224))
+        else:
+            cam = np.ones((224, 224), dtype=np.float32) * cam.mean()
+            
         cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
         return cam

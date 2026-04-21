@@ -1,0 +1,24 @@
+{
+    "image": "ModerateG3 (1).png",
+    "grade": 3,
+    "label": "Moderate",
+    "confidence": 0.6917632222175598,
+    "markers": {
+        "JSW": {
+            "score": 0.4618843197822571,
+            "mark": "Moderate"
+        },
+        "Osteophytes": {
+            "score": 0.6361037492752075,
+            "mark": "Significant"
+        },
+        "Sclerosis": {
+            "score": 0.5450111627578735,
+            "mark": "Significant"
+        },
+        "Contour": {
+            "score": 0.6522164940834045,
+            "mark": "Significant"
+        }
+    }
+}
