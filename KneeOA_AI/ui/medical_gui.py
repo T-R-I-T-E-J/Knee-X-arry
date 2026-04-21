@@ -855,7 +855,7 @@ class KneeOAMainWindow(QMainWindow):
         if tp and tp.get("detection_status") != "FAILED":
             card_tp = MetricCard("TIBIAL PLATEAU AUTO-DIVISION", "📐")
             
-            # Anatomical Calibration
+            # Anatomical Calibration (AI & Geometric)
             card_tp.add_metric("--- ANATOMICAL CALIBRATION (75mm) ---", "")
             ma = tp.get("medial_jsw_anatomical", {})
             la = tp.get("lateral_jsw_anatomical", {})

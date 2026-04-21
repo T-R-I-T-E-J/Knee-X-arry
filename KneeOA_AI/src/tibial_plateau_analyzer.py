@@ -28,8 +28,8 @@ class TibialPlateauAnalyzer:
             "division_line": {},
             "medial_jsw_anatomical": {},
             "lateral_jsw_anatomical": {},
-            "medial_jsw_ruler": {},
-            "lateral_jsw_ruler": {},
+            "medial_metrics": {},
+            "lateral_metrics": {},
             "overall_assessment": {},
             "quality_metrics": {"warnings": []},
             "visual_outputs": {}
@@ -39,7 +39,17 @@ class TibialPlateauAnalyzer:
             image = cv2.imread(image_path)
             if image is None:
                 raise ValueError(f"Failed to load image from {image_path}")
-                
+            original_h, original_w = image.shape[:2]
+
+            import torch
+            import os
+            from src.segmentation_model import KneeSegmentationUNet
+            from torchvision import transforms
+            import PIL.Image as PILImage
+
+            model_path = "models/segmentation_unet.pt"
+            
+            # --- BASE IMAGE ENHANCEMENT ---
             image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             image_enhanced = clahe.apply(image_gray)
@@ -47,56 +57,52 @@ class TibialPlateauAnalyzer:
             
             sharpness = min(100.0, (np.log1p(cv2.Laplacian(image_gray, cv2.CV_64F).var()) / 8.0) * 100.0)
             result["quality_metrics"]["image_sharpness_score"] = round(sharpness, 1)
+            
+            h_img, w_img = image_denoised.shape
+            knee_center_x, knee_center_y = None, None
 
             # ---------------------------------------------------------
-            # ML STEP 2: MORPHOLOGICAL BONE HEALING & BOTTLENECK TRACKING
+            # ML STEP 1: MORPHOLOGICAL BONE HEALING & BOTTLENECK TRACKING
             # ---------------------------------------------------------
-            h_img, w_img = image_denoised.shape
-            
-            # Otsu thresholding cleanly maps the bone while dropping background haze
             _, binary = cv2.threshold(image_denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             
-            # Extreme Morphological Close: This mathematically ERASES the black pen lines drawn across the bone
+            # CRITICAL FIX: If this is a Dual-View X-Ray (width >= height), forcibly blindfold the right half
+            # to guarantee the AP knee cannot morphologically fuse with the Lateral knee!
+            if w_img > h_img:
+                binary[:, int(w_img * 0.50):] = 0
+            binary[:, :int(w_img * 0.05)] = 0  # Erase the vertical ruler on the far left edge!
+                
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
             
             contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
             valid_bones = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
-                if w < w_img * 0.1 and h > h_img * 0.4: continue # Ignore tall thin rulers on the side
-                if y > h_img * 0.85: continue # Ignore dense text blocks baked onto the bottom
+                if w < w_img * 0.1 and h > h_img * 0.4: continue 
+                if y > h_img * 0.85: continue 
                 if cv2.contourArea(c) > 5000:
                     valid_bones.append(c)
                     
             valid_bones = sorted(valid_bones, key=cv2.contourArea, reverse=True)
-            
             if len(valid_bones) > 0:
-                # If there's bone mass in both halves of the image, it's a dual-view X-Ray. Lock to the left (AP) half!
                 left_bones = [c for c in valid_bones if (cv2.boundingRect(c)[0] + cv2.boundingRect(c)[2]/2) < w_img * 0.5]
-                right_bones = [c for c in valid_bones if (cv2.boundingRect(c)[0] + cv2.boundingRect(c)[2]/2) > w_img * 0.5]
                 
-                if len(left_bones) > 0 and len(right_bones) > 0:
+                if len(left_bones) > 0:
                     valid_bones = left_bones
                     
-                # Create a cleansed mathematical mask containing only the relevant AP bones
                 bone_mask = np.zeros_like(binary)
                 cv2.drawContours(bone_mask, valid_bones, -1, 255, -1)
                 
-                # 1D Vertical Row Density Projection of the physical bone map
                 y_proj = np.sum(bone_mask, axis=1)
                 y_proj_smooth = cv2.GaussianBlur(y_proj.reshape(-1, 1).astype(np.float32), (31, 1), 0).flatten()
                 
-                # The functional joint is the physical GAP (valley) in vertical bone density between the Femur and Tibia blocks
                 search_y_min, search_y_max = int(h_img * 0.30), int(h_img * 0.70)
                 y_center_roi_smooth = y_proj_smooth[search_y_min:search_y_max]
                 
-                # Find the deepest valley bounded by significant bone density drops
                 valley_idx = np.argmin(y_center_roi_smooth) 
                 knee_center_y = int(valley_idx + search_y_min)
                 
-                # Align X to the center of mass of the bone mask at this valley
                 row_pixels = bone_mask[max(0, knee_center_y-20):min(h_img, knee_center_y+20), :]
                 bone_indices = np.where(row_pixels > 0)[1]
                 if len(bone_indices) > 0:
@@ -106,10 +112,6 @@ class TibialPlateauAnalyzer:
                     knee_center_x = x_all + w_all // 2
             else:
                 knee_center_x, knee_center_y = w_img // 2, h_img // 2
-                
-            # Fallback bounds check
-            if not (0.25 * h_img <= knee_center_y <= 0.75 * h_img):
-                knee_center_y = h_img // 2
                 
             logger.info(f"Knee joint center locked at x={knee_center_x}, y={knee_center_y}")
             

@@ -1,0 +1,35 @@
+# Knee Segmentation AI - Usage Guide
+
+This guide explains how to prepare, train, and run the U-Net segmentation model for automated Knee X-Ray analysis.
+
+## 1. Prepare Training Data (Pseudo-Labeling)
+Before training, you need to generate masks from your existing dataset using the morphological pseudo-labeling script.
+Run:
+```bash
+python scripts/generate_masks.py
+```
+This will process images in `data/MedicalExpert-I` and `data/MedicalExpert-II` and save masks to `data/segmentation/`.
+
+## 2. Train the Model
+To train the U-Net model from scratch:
+```bash
+python train_segmentation.py
+```
+**Recommended Settings:**
+- **Epochs:** 20 (The model typically converges to a Dice Score > 0.95 by epoch 15-20).
+- **Batch Size:** 4-8 (depending on your GPU VRAM).
+- **Optimizer:** Adam (Learning Rate: 1e-4).
+
+The training script will save the best weights to `models/segmentation_unet.pt`.
+
+## 3. Integration with Analyzer
+The `TibialPlateauAnalyzer` in `src/tibial_plateau_analyzer.py` is configured to automatically detect and use `models/segmentation_unet.pt` if it exists. 
+- If found: It uses the AI to lock the joint center and isolate the AP knee.
+- If missing: It falls back to robust morphological OpenCV logic.
+
+## 4. Run the GUI
+Launch the dashboard to see the AI in action:
+```bash
+python ui/medical_gui.py
+```
+Drop a dual-view or single-view X-ray to perform automated bisection and metric calculation.
