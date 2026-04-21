@@ -38,6 +38,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.geometric_analysis import GeometricAnalyzer
 from src.report_generator import ReportGenerator
+from src.tibial_plateau_analyzer import TibialPlateauAnalyzer
+import base64
 
 # ═══════════════════════════════════════════════════════════════════
 # THEME & STYLE
@@ -110,6 +112,7 @@ class AnalysisWorker(QThread):
         self.model = model
         self.device = device
         self.analyzer = GeometricAnalyzer()
+        self.plateau_analyzer = TibialPlateauAnalyzer()
         self._cancel = False
 
     def cancel(self):
@@ -147,8 +150,12 @@ class AnalysisWorker(QThread):
 
         # 1. Sharpness
         sharpness = self.analyzer.calculate_sharpness(gray)
-
-        # 2. JSW geometric
+        # 2. Tibial Plateau Detailed Geometric JSW
+        try:
+            plateau_analysis = self.plateau_analyzer.analyze_image(path, measurement_points_per_half=4)
+        except Exception as e:
+            plateau_analysis = {"error": str(e), "detection_status": "FAILED"}
+            
         jsw = self.analyzer.measure_jsw(gray)
 
         # 3. Contour analysis
@@ -193,6 +200,7 @@ class AnalysisWorker(QThread):
             "timestamp": datetime.now().isoformat(),
             "sharpness": sharpness,
             "jsw_geometric": jsw,
+            "tibial_plateau": plateau_analysis,
             "contour_analysis": contour,
             "kl_grade": kl_grade,
             "confidence": confidence,
@@ -842,26 +850,39 @@ class KneeOAMainWindow(QMainWindow):
         card_sharp.add_metric("Recommendation:", sh.get('recommendation', ''))
         self.individual_layout.addWidget(card_sharp)
 
-        # ── JSW Card ──
-        jsw = result.get("jsw_geometric", {})
-        med = jsw.get("medial", {})
-        lat = jsw.get("lateral", {})
-        card_jsw = MetricCard("FEMUR-TIBIA DISTANCE (Joint Space Width)", "📏")
-        card_jsw.add_metric("Measurement Points:", str(jsw.get("points_sampled", 0)))
-        conf_pct = int(jsw.get("confidence", 0) * 100)
-        card_jsw.add_metric("Detection Confidence:", f"{conf_pct}%", bar_value=conf_pct)
-        card_jsw.add_metric("", "")  # spacer
-
-        m_status = "✓ NORMAL" if med.get("mean", 0) >= 3.0 else "⚠ NARROWED"
-        card_jsw.add_metric("Medial — Min / Max:", f"{med.get('min', 0):.1f} / {med.get('max', 0):.1f} mm")
-        card_jsw.add_metric("Medial — Mean ± Std:", f"{med.get('mean', 0):.2f} ± {med.get('std', 0):.2f} mm",
-                            status=m_status)
-
-        l_status = "✓ NORMAL" if lat.get("mean", 0) >= 3.0 else "⚠ NARROWED"
-        card_jsw.add_metric("Lateral — Min / Max:", f"{lat.get('min', 0):.1f} / {lat.get('max', 0):.1f} mm")
-        card_jsw.add_metric("Lateral — Mean ± Std:", f"{lat.get('mean', 0):.2f} ± {lat.get('std', 0):.2f} mm",
-                            status=l_status)
-        self.individual_layout.addWidget(card_jsw)
+        # ── Tibial Plateau Detailed JSW Card ──
+        tp = result.get("tibial_plateau", {})
+        if tp and tp.get("detection_status") != "FAILED":
+            card_tp = MetricCard("TIBIAL PLATEAU AUTO-DIVISION", "📐")
+            
+            # Anatomical Calibration
+            card_tp.add_metric("--- ANATOMICAL CALIBRATION (75mm) ---", "")
+            ma = tp.get("medial_jsw_anatomical", {})
+            la = tp.get("lateral_jsw_anatomical", {})
+            m_status_a = "✓ NORMAL" if ma.get("mean_mm", 0) >= 3.0 else "⚠ NARROWED"
+            l_status_a = "✓ NORMAL" if la.get("mean_mm", 0) >= 3.0 else "⚠ NARROWED"
+            card_tp.add_metric("Medial JSW (Mean ± Std):", f"{ma.get('mean_mm', 0):.2f} ± {ma.get('std_mm', 0):.2f} mm", status=m_status_a)
+            card_tp.add_metric("Lateral JSW (Mean ± Std):", f"{la.get('mean_mm', 0):.2f} ± {la.get('std_mm', 0):.2f} mm", status=l_status_a)
+            
+            # Ruler Calibration
+            card_tp.add_metric("", "")
+            card_tp.add_metric("--- RULER CALIBRATION (Fallback) ---", "")
+            mr = tp.get("medial_jsw_ruler", {})
+            lr = tp.get("lateral_jsw_ruler", {})
+            m_status_r = "✓ NORMAL" if mr.get("mean_mm", 0) >= 3.0 else "⚠ NARROWED"
+            l_status_r = "✓ NORMAL" if lr.get("mean_mm", 0) >= 3.0 else "⚠ NARROWED"
+            card_tp.add_metric("Medial JSW (Mean ± Std):", f"{mr.get('mean_mm', 0):.2f} ± {mr.get('std_mm', 0):.2f} mm", status=m_status_r)
+            card_tp.add_metric("Lateral JSW (Mean ± Std):", f"{lr.get('mean_mm', 0):.2f} ± {lr.get('std_mm', 0):.2f} mm", status=l_status_r)
+            
+            self.individual_layout.addWidget(card_tp)
+            
+            # Display marked overlay in image viewer
+            vis_outs = tp.get("visual_outputs", {})
+            if "image_with_marked_points" in vis_outs:
+                img_data = base64.b64decode(vis_outs["image_with_marked_points"])
+                qimg = QImage.fromData(img_data)
+                self.viewer._pixmap = QPixmap.fromImage(qimg)
+                self.viewer._render()
 
         # ── Clinical Params Card (CNN) ──
         cp = result.get("clinical_params", {})

@@ -1,0 +1,12 @@
+CONFIDENCE DIAGNOSTIC REPORT - 20260420_102916
+==================================================
+
+FINDINGS:
+1. Image Quality: Blurry images may be reducing confidence. Consider filtering datasets.
+2. Training Quality: The model must be trained to >85% accuracy on a balanced dataset to achieve high diagnostic confidence.
+3. Multi-task Architecture: Verified. The 4-head logic is correctly in place.
+
+ACTION PLAN (CONFIDENCE_FIX_QUICK_CARD.txt instructions):
+  -> 1. Rerun `python train.py --epochs 100` with the updated, refined codebase.
+  -> 2. Monitor Validation accuracy. The refactor already implemented advanced losses.
+  -> 3. Once val_acc > 85%, inference confidence will naturally exceed 80%.
